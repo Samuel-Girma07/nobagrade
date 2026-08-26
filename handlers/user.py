@@ -101,6 +101,13 @@ async def process_api_key_submission(message: Message, state: FSMContext, bot: B
         )
         return
 
+    if len(api_key_text) > 1000:
+        await message.answer(
+            "⚠️ The submitted key is too long (maximum 1,000 characters). Please send a valid API key.",
+            reply_markup=get_cancel_keyboard()
+        )
+        return
+
     await state.clear()
 
     user = message.from_user

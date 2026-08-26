@@ -98,6 +98,28 @@ async def test_start_check_credit_flow(memory_storage):
     assert req["status"] == "pending"
 
 @pytest.mark.asyncio
+async def test_user_input_length_limit(memory_storage):
+    user = User(id=123, is_bot=False, first_name="Alice")
+    chat = Chat(id=123, type="private")
+    state = create_fsm_context(memory_storage, user_id=123, chat_id=123)
+    await state.set_state(CheckCreditStates.waiting_for_api_key)
+
+    submit_msg = MagicMock(spec=Message)
+    submit_msg.from_user = user
+    submit_msg.chat = chat
+    submit_msg.text = "A" * 1500  # Exceeds 1000 chars
+    submit_msg.answer = AsyncMock()
+
+    mock_bot = MagicMock()
+    await user_handlers.process_api_key_submission(submit_msg, state, mock_bot)
+
+    # Message rejected
+    submit_msg.answer.assert_called_once()
+    assert "too long" in submit_msg.answer.call_args[0][0]
+    # Admin was not contacted
+    mock_bot.send_message.assert_not_called()
+
+@pytest.mark.asyncio
 async def test_admin_reply_and_delivery():
     # Setup request in DB
     req_id = await db.create_request(
@@ -139,6 +161,22 @@ async def test_admin_reply_and_delivery():
     updated_req = await db.get_request_by_id(req_id)
     assert updated_req["status"] == "replied"
     assert updated_req["response_credit"] == "$120.00 Remaining (Valid until Dec 2026)"
+
+@pytest.mark.asyncio
+async def test_admin_reply_length_limit():
+    req_id = await db.create_request(12345, "u", "U", "key")
+    admin_user = User(id=ADMIN_ID, is_bot=False, first_name="Admin")
+    
+    admin_msg = MagicMock(spec=Message)
+    admin_msg.from_user = admin_user
+    admin_msg.answer = AsyncMock()
+
+    mock_bot = MagicMock()
+    await admin_handlers.process_admin_response(admin_msg, req_id, "X" * 3000, mock_bot)
+
+    admin_msg.answer.assert_called_once()
+    assert "too long" in admin_msg.answer.call_args[0][0]
+    mock_bot.send_message.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_admin_manual_reply_command():

@@ -8,7 +8,7 @@ import database as db
 from keyboards.user_kb import get_main_menu_keyboard
 
 router = Router()
-# Filter all messages in this router to only ADMIN_ID
+# Filter all messages in this router strictly to ADMIN_ID
 router.message.filter(F.from_user.id == ADMIN_ID)
 
 @router.message(Command("admin"))
@@ -104,6 +104,10 @@ async def handle_admin_reply_message(message: Message, bot: Bot) -> None:
 async def process_admin_response(
     admin_msg: Message, request_id: int, credit_text: str, bot: Bot
 ) -> None:
+    if len(credit_text) > 2000:
+        await admin_msg.answer("⚠️ Response is too long (maximum 2,000 characters).", parse_mode="HTML")
+        return
+
     req = await db.get_request_by_id(request_id)
     if not req:
         await admin_msg.answer(f"❌ Request #{request_id} was not found in the database.", parse_mode="HTML")
