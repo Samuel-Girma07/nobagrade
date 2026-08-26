@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import os
 import sys
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -46,9 +48,37 @@ async def wait_for_connection(bot: Bot) -> None:
             await asyncio.sleep(delay)
             delay = min(delay * 1.5, 30)
 
+async def health_check(request: web.Request) -> web.Response:
+    stats = await db.get_stats()
+    return web.json_response({
+        "status": "online",
+        "service": "nobabot",
+        "stats": stats
+    })
+
+async def start_web_server(port: int) -> web.AppRunner:
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    app.router.add_get("/healthz", health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Health check HTTP server started on port {port}")
+    return runner
+
 async def main() -> None:
     logger.info("Initializing database...")
     await db.init_db()
+
+    # If running on a cloud host with PORT (e.g. Render Web Service)
+    port_env = os.getenv("PORT")
+    web_runner = None
+    if port_env:
+        try:
+            web_runner = await start_web_server(int(port_env))
+        except Exception as e:
+            logger.warning(f"Could not start health check HTTP server: {e}")
 
     session = None
     if PROXY_URL:
@@ -75,6 +105,8 @@ async def main() -> None:
         logger.info("Bot is now actively listening for messages...")
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        if web_runner:
+            await web_runner.cleanup()
         await bot.session.close()
         logger.info("Bot stopped.")
 
